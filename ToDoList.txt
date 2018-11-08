@@ -1,8 +1,7 @@
 To-Do-List für CMM: 
 - Github
-- Piosson Gleichung FT- Solver
+- Piosson-Gleichung FT-Solver
 - GPU computing dacoda 
 - Gif
 - Gui 
 - Interpolation 
-test
