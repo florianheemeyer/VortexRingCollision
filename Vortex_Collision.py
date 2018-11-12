@@ -5,11 +5,12 @@ import matplotlib.pylab as plt
 from mpl_toolkits.mplot3d import axes3d
 from sys import getsizeof
 import datetime
+import time
 from timeit import default_timer as timer
-"""import pycuda as cuda
+import pycuda as cuda
 import pycuda.gpuarray as gpuarray
 import pycuda.autoinit
-from pycuda.compiler import SourceModule"""
+from pycuda.compiler import SourceModule
 
 class ctrl:
 
@@ -43,13 +44,11 @@ class ring_val:
 #################################   FUNCTION-DECLARATION   #################################
 
 # function kernel for the GPU (not complete !!!)
-"""mod = SourceModule(__global__ void particle_strength(float *w, float *alpha)
+"""mod = SourceModule(""__global__ void particle_strength(float *w, float *alpha)
     {
-        for(k= in range(0,control.N_grid):
-        for j in range(0,control.N_grid):
-            for i in range(0,control.N_grid):
+        
     }
-    """
+    "")"""
 
 def phi(x):
     
@@ -117,14 +116,14 @@ def c_ring2(ring, alpha, control):  # create the particles for one vortex ring g
 
     # create counting and loop variables
     N = 0
-    th = np.linspace(0,2 * np.pi,ring.N_th)
-    phi = np.linspace(0,2 * np.pi,ring.N_phi)
+    th = np.linspace(0,2 * np.pi,ring.N_th + 1)
+    phi = np.linspace(0,2 * np.pi,ring.N_phi + 1)
     d = np.linspace(ring.r / 10,ring.r,ring.N_d)
 
     # loop through all positions in the ring
-    for k in range(0,ring.N_th):
+    for k in range(0,ring.N_d):
         for j in range(0,ring.N_phi):
-            for i in range(0,ring.N_d):
+            for i in range(0,ring.N_th):
 
                 # assign positions to the particles
                 alpha[N,0,0] = ring.x_pos + (ring.R + d[k] * np.cos(th[i])) * np.cos(phi[j])
@@ -141,7 +140,7 @@ def c_ring2(ring, alpha, control):  # create the particles for one vortex ring g
                 N = N + 1                
     
     # print out counting variable
-    print N
+    print "%d particles created" %N
       
                   
 def inter_P2G(alpha,w,control): # interpolate the strengths of the particles onto the grid
@@ -179,7 +178,8 @@ def inter_P2G(alpha,w,control): # interpolate the strengths of the particles ont
                 w[i,j,k,2] = w_sum2 / control.h ** 3
 
             end = timer()
-            print "z:(%2d/%2d), y:(%2d/%2d), time/step: %.2fs, time total: %.2fs"  %(k, control.N_grid,  j, control.N_grid, (end - start), (end - start1))
+            print "\b" * 1000,
+            print "z:(%2d/%2d), y:(%2d/%2d), time/step: %.2fs, time total: %.2fs/%.0fs"  %(k+1, control.N_grid,  j+1, control.N_grid, (end - start), (end - start1), (end - time1) + (((N_grid - k) * N_grid) + N_grid - j) * (end - start)),
     print "interpolating particles to grid done"
 
 
@@ -228,7 +228,10 @@ def vort_stream_equ(s,w,control):   # calculate the stream function field from t
     SOR_iter = 500
 
     # iterate the solution for the stream function
+    time1=timer()
     for iter in range(0,SOR_iter):
+        
+        time2=timer()
 
         # loop through all grid nodes except the outer layer (Dirichlet BC)
         for k in range(1,control.N_grid - 1):
@@ -238,7 +241,10 @@ def vort_stream_equ(s,w,control):   # calculate the stream function field from t
                     s[i,j,k,0] = s[i,j,k,0] + w_SOR * ((1 / 6 * (s[i - 1,j,k,0] + s[i + 1,j,k,0] + s[i,j - 1,k,0] + s[i,j + 1,k,0] + s[i,j,k - 1,0] + s[i,j,k + 1,0]) + control.h ** 3 * w[i,j,k,0]) - s[i,j,k,0])
                     s[i,j,k,1] = s[i,j,k,1] + w_SOR * ((1 / 6 * (s[i - 1,j,k,1] + s[i + 1,j,k,1] + s[i,j - 1,k,1] + s[i,j + 1,k,1] + s[i,j,k - 1,1] + s[i,j,k + 1,1]) + control.h ** 3 * w[i,j,k,1]) - s[i,j,k,1])
                     s[i,j,k,2] = s[i,j,k,2] + w_SOR * ((1 / 6 * (s[i - 1,j,k,2] + s[i + 1,j,k,2] + s[i,j - 1,k,2] + s[i,j + 1,k,2] + s[i,j,k - 1,2] + s[i,j,k + 1,2]) + control.h ** 3 * w[i,j,k,2]) - s[i,j,k,2])
-
+        
+        end=timer()
+        print "\b" * 1000,
+        print "iteration: %3d/%3d, time/iter: %.2fs, time total: %.2fs/%.0fs" %(iter+1, SOR_iter, (end - time2), (end - time1), (end - time1) + (SOR_iter - iter + 1) * (end - time2)),
     print "vorticity stream step done"
   
 
@@ -267,7 +273,7 @@ def find_nearest(array, value): # find index of array with closest value to inpu
 def inter_G2P(alpha,u,control): # interpolate the velocity onto the particles
 
     # set up a linearly spaced "domain" to find the closest grid point to the particle
-    dom = np.arange(0,control.N_size,control.h)
+    dom = np.linspace(0,control.N_size,control.N_grid)
     
     # loop through all particles
     for N in range(0,control.N_particles):
@@ -281,16 +287,16 @@ def inter_G2P(alpha,u,control): # interpolate the velocity onto the particles
         if idx_x==0 or idx_x==control.N_grid or idx_y==0 or idx_y==control.N_grid or idx_z==0 or idx_z==control.N_grid:
             if idx_x==0:
                 idx_x=1
-            elif idx_x==control.N_grid:
-                idx_x=control.N_grid-1
+            elif idx_x==control.N_grid-1:
+                idx_x=control.N_grid-2
             elif idx_y==0:
                 idx_y=1
-            elif idx_y==control.N_grid:
-                idx_y=control.N_grid-1
+            elif idx_y==control.N_grid-1:
+                idx_y=control.N_grid-2
             elif idx_z==0:
                 idx_z=1
-            elif idx_z==control.N_grid:
-                idx_z=control.N_grid-1
+            elif idx_z==control.N_grid-1:
+                idx_z=control.N_grid-2
 
         # x-value for the interpolation
         interK_g_x = [dom[idx_x - 1],dom[idx_x],dom[idx_x + 1]]
@@ -413,6 +419,7 @@ def plot_particles(alpha,control): # plot the current paticle positions in the d
     ax.set_zlim3d(0,control.N_size)
     plt.show()
 
+
 def count_nonzero(array):
     count=0
     for k in range(0,control.N_grid):
@@ -425,14 +432,16 @@ def count_nonzero(array):
                 if array[i,j,k,2] != 0:
                     count=count+1
     return count
+
+
 #################################   MAIN - FUNCTION   #################################
 
 
 # set simulation parameters
 N_size = 2 * np.pi
 N_rings = 1
-N_grid = 65
-N_particles = 10000
+N_grid = 16
+N_particles = 1200
 h = N_size / (N_grid - 1)
 t_total = 10
 t_step = 0.01
@@ -442,8 +451,8 @@ kin_vis = 0.01
 # save simulation parameters in ctrl class
 control = ctrl(N_size, N_grid, N_particles, h, t_step, t_total, t_time, kin_vis)
 
-# set and save parameters for one ring in ring_val class (note: the last three parameters don't work as intended. the current values work to changing them might not)
-ring1 = ring_val(1.5, 0.3, np.pi, np.pi, np.pi, 100, 10, 100, 10)
+# set and save parameters for one ring in ring_val class
+ring1 = ring_val(1.5, 0.3, np.pi, np.pi, np.pi, 100, 8, 30, 5)
 
 # initialize the grid fields (each value is a 3-vector)
 w = np.zeros((N_grid,N_grid,N_grid,3))      # vorticity field
@@ -455,25 +464,28 @@ alpha = np.zeros((N_particles,3,4))
 
 # create a vortex ring and plot it
 c_ring2(ring1,alpha,control)
-#plot_particles(alpha,control)
+plot_particles(alpha,control)
 
 #save_file=create_savefile()
 
 # simulation loop
 count = 1
+print "\nSimulation start \n"
 while control.t_time < control.t_total:
-    
-    print control.t_time
+    time1=timer()
+    print "time_step %.2f" %control.t_time
     inter_P2G(alpha,w,control)
     vort_stream_equ(s,w,control)
     stream_velocity_equ(u,s,control)
     inter_G2P(alpha,u,control)
     move_part(alpha,control)
     stretching(alpha, control)
+    end=timer()
+    #if count % 10 == 0:
     plot_particles(alpha,control)
     #save_values(save_file,w,s,u,control)
-    print count_nonzero(w), count_nonzero(s), count_nonzero(u)
-    print "step\n"
+    print "non-zero w: %d/%d, non-zero s: %d/%d,non-zero u %d/%d" %(count_nonzero(w), N_grid ** 3, count_nonzero(s), N_grid ** 3, count_nonzero(u), N_grid ** 3)
+    print "\n%.2fs for time step %.2f\n\n" %((end-time1), control.t_time)
     count= count+1
     control.t_time = control.t_time + control.t_step
 
