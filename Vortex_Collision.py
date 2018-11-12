@@ -145,10 +145,14 @@ def c_ring2(ring, alpha, control):  # create the particles for one vortex ring g
                   
 def inter_P2G(alpha,w,control): # interpolate the strengths of the particles onto the grid
 
-    # loop through all the grid nodes
+    # start the timer for the whole function
     start1 = timer()
+
+    # loop through all the grid nodes
     for k in range(0,control.N_grid):
         for j in range(0,control.N_grid):
+
+            # start the timer for the current yz-grid step
             start = timer()
             for i in range(0,control.N_grid):
 
@@ -177,7 +181,10 @@ def inter_P2G(alpha,w,control): # interpolate the strengths of the particles ont
                 w[i,j,k,1] = w_sum1 / control.h ** 3
                 w[i,j,k,2] = w_sum2 / control.h ** 3
 
+            # stop the timer
             end = timer()
+
+            # print the current grid position, time/grid step, total time and predicted time
             print "\b" * 1000,
             print "z:(%2d/%2d), y:(%2d/%2d), time/step: %.2fs, time total: %.2fs/%.0fs"  %(k+1, control.N_grid,  j+1, control.N_grid, (end - start), (end - start1), (end - time1) + (((N_grid - k) * N_grid) + N_grid - j) * (end - start)),
     print "interpolating particles to grid done"
@@ -227,10 +234,13 @@ def vort_stream_equ(s,w,control):   # calculate the stream function field from t
     w_SOR = 1.5
     SOR_iter = 500
 
-    # iterate the solution for the stream function
+    # start timer for the whole function
     time1=timer()
+
+    # iterate the solution for the stream function
     for iter in range(0,SOR_iter):
         
+        # start timer for the current iteration
         time2=timer()
 
         # loop through all grid nodes except the outer layer (Dirichlet BC)
@@ -242,7 +252,10 @@ def vort_stream_equ(s,w,control):   # calculate the stream function field from t
                     s[i,j,k,1] = s[i,j,k,1] + w_SOR * ((1 / 6 * (s[i - 1,j,k,1] + s[i + 1,j,k,1] + s[i,j - 1,k,1] + s[i,j + 1,k,1] + s[i,j,k - 1,1] + s[i,j,k + 1,1]) + control.h ** 3 * w[i,j,k,1]) - s[i,j,k,1])
                     s[i,j,k,2] = s[i,j,k,2] + w_SOR * ((1 / 6 * (s[i - 1,j,k,2] + s[i + 1,j,k,2] + s[i,j - 1,k,2] + s[i,j + 1,k,2] + s[i,j,k - 1,2] + s[i,j,k + 1,2]) + control.h ** 3 * w[i,j,k,2]) - s[i,j,k,2])
         
-        end=timer()
+        # stop the timer
+        end=timer() 
+
+        # print the current iteration, time/iteration, total time and predicted time
         print "\b" * 1000,
         print "iteration: %3d/%3d, time/iter: %.2fs, time total: %.2fs/%.0fs" %(iter+1, SOR_iter, (end - time2), (end - time1), (end - time1) + (SOR_iter - iter + 1) * (end - time2)),
     print "vorticity stream step done"
@@ -468,24 +481,42 @@ plot_particles(alpha,control)
 
 #save_file=create_savefile()
 
-# simulation loop
-count = 1
+# counting variable for ploting the particles in intervals
+count_print = 1
+
+#################################   simulation loop   #################################
+
 print "\nSimulation start \n"
+
+# main loop
 while control.t_time < control.t_total:
+
+    # start timer for the current simulation step
     time1=timer()
+
+    # print  time step
     print "time_step %.2f" %control.t_time
+
+    # VIC-algorithm
     inter_P2G(alpha,w,control)
     vort_stream_equ(s,w,control)
     stream_velocity_equ(u,s,control)
     inter_G2P(alpha,u,control)
     move_part(alpha,control)
     stretching(alpha, control)
+
+    # stop the timer
     end=timer()
-    #if count % 10 == 0:
+
+    # if statement is true plot the particles (or comment out)
+    # if count_print % 10 == 0:
     plot_particles(alpha,control)
-    #save_values(save_file,w,s,u,control)
+
+    # save the values (not completely done yet !!!)
+    # save_values(save_file,w,s,u,control)
+
+    # print some time step information for quality control
     print "non-zero w: %d/%d, non-zero s: %d/%d,non-zero u %d/%d" %(count_nonzero(w), N_grid ** 3, count_nonzero(s), N_grid ** 3, count_nonzero(u), N_grid ** 3)
     print "\n%.2fs for time step %.2f\n\n" %((end-time1), control.t_time)
     count= count+1
     control.t_time = control.t_time + control.t_step
-
