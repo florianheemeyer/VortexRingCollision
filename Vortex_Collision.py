@@ -7,10 +7,10 @@ from sys import getsizeof
 import datetime
 import time
 from timeit import default_timer as timer
-import pycuda as cuda
-import pycuda.gpuarray as gpuarray
-import pycuda.autoinit
-from pycuda.compiler import SourceModule
+#import pycuda as cuda
+#import pycuda.gpuarray as gpuarray
+#import pycuda.autoinit
+#from pycuda.compiler import SourceModule
 
 class ctrl:
 
