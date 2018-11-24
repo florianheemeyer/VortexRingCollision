@@ -40,8 +40,7 @@ def vort_stream_equ(s, w, control):  # calculate the stream function field from 
     print "vorticity stream step done"
 
 
-def stream_velocity_equ(u, s,
-                        control):  # calculate the velocity field from the stream function field on the grid points
+def stream_velocity_equ(u, s, control):  # calculate the velocity field from the stream function field on the grid points
 
     # calculate the curl of the streamfunction to get the velocity field with the Central Difference Method
 
