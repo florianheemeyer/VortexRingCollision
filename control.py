@@ -11,16 +11,5 @@ class ctrl:
         self.t_time = t_time                # current time in the simulation
         self.kin_vis = kin_vis              # kinematic viscosity of the fluid
 
-def count_nonzero(array):
-    count=0
-    for k in range(0,control.N_grid):
-        for j in range(0,control.N_grid):
-            for i in range(0,control.N_grid):
-                if array[i,j,k,0] != 0:
-                    count=count+1
-                if array[i,j,k,1] != 0:
-                    count=count+1
-                if array[i,j,k,2] != 0:
-                    count=count+1
-    return count
+
 
