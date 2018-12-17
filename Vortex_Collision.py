@@ -35,7 +35,7 @@ class ctrl:
 class ring_val:
 
     # control variable containing the parameters of one vortex ring.
-    def __init__(self, R, r, x_pos, y_pos, z_pos, Re, N_phi, N_d):
+    def __init__(self, R, r, x_pos, y_pos, z_pos, Re, N_phi, N_d, N_p):
         self.R = R              # main ring radius
         self.r = r              # ring tube radius
         self.x_pos = x_pos      # x position of the center of the ring
@@ -43,13 +43,14 @@ class ring_val:
         self.z_pos = z_pos      # z position of the center of the ring
         self.Re = Re            # Reynolds number of the vortex ring
         self.N_phi = N_phi      # number of main ring slices
-        self.N_d = N_d          # number radial points
+        self.N_d = N_d          # number radial slices (each slice adds four points)
+        self.N_p = N_p          # number of particles
 
 
 #################################   FUNCTION-DECLARATION   #################################
 
 
-def GPU_setup():
+def GPU_setup(): #Decleration of the functions to be called on the GPU. This will be called before the simulation start because it will be compiled during runtime.
 
     print "setting up GPU kernel functions"
 
@@ -227,6 +228,7 @@ def GPU_setup():
     }
     """)
     
+    #return the function handler
     return mod
    
  
@@ -293,17 +295,22 @@ def c_ring(R, r, w_0, Re, alpha, control):
     plt.show()"""       #### probably not needed ###
 
 
-def c_ring2(ring, alpha, control):  # create the particles for one vortex ring given the parameters passed with "ring"
+def c_ring2(N, ring, alpha, control):  # create the particles for one vortex ring given the parameters passed with "ring"
 
-    # create counting and loop variables
-    N = 0
+    # counting variable
+    
+
+    # arrays for the particle creation
     phi = np.linspace(0,2 * np.pi,ring.N_phi + 1)
     d = np.linspace(float(ring.r) / float(ring.N_d),ring.r,ring.N_d)
    
     # loop through all positions in the ring
     for j in range(0,ring.N_phi):
         for k in range(0,ring.N_d):
+
+            # array for the tube particles (increases with the radial part)
             th = np.linspace(0,2 * np.pi,(k+1)*4 + 1)
+
             for i in range(0,(k+1)*4):
                 
                 # assign positions to the particles
@@ -323,6 +330,7 @@ def c_ring2(ring, alpha, control):  # create the particles for one vortex ring g
     
     # print out counting variable
     print "%d particles created" %N
+    return N
       
                   
 def inter_P2G(alpha,w,control): # interpolate the strengths of the particles onto the grid
@@ -378,10 +386,11 @@ def inter_P2G_GPU(alpha,w,control,mod): # interpolate the strengths of the parti
     print "| 1/6) interpolating particles to grid              calc           |\r",
 
 
-    # allocate memory on the GPU and copy data to it
+    # create 32-bit arrays for the GPU
     w_32 = w.astype(np.float32)
     alpha_32 = alpha.astype(np.float32)
     
+    # allocate memory on the GPU and copy data to it
     w_gpu = drv.mem_alloc(w_32.nbytes)
     alpha_gpu = drv.mem_alloc(alpha_32.nbytes)
     
@@ -410,6 +419,7 @@ def inter_P2G_GPU(alpha,w,control,mod): # interpolate the strengths of the parti
     # copy the data from the GPU back to the program
     drv.memcpy_dtoh(w_32, w_gpu)
     
+    # free emory on the GPU
     w_gpu.free()
     alpha_gpu.free()
 
@@ -423,9 +433,11 @@ def vort_stream_equ(s,w,control):   # calculate the stream function field from t
 
     # solving the streamfunction equation with the SOR method, Dirichlet BC i.e. no flow on the walls
     w_SOR = 2/(1+np.sin(np.pi/control.N_grid))
+
     # start timer for the whole function
     time1=timer()
 
+    # number of SOR-iterations
     SOR_iter = 100
 
     # iterate the solution for the stream function
@@ -763,35 +775,6 @@ def move_part(alpha,control):   # move the particles i.e time advancement (maybe
     print "| 5/6) move particles                               done   {0:6.2f}  |" .format(end-start)
     
 
-def vel_RK4(control,val_0,fun): # may be needed for time advancement (not complete!!!)
-
-    # allocate solution array
-    val_1=np.zeros(3)
-
-    # integrate the value using Runge-Kutta 4
-    k1_0 = fun(val_0[0])
-    k1_1 = fun(val_0[1])
-    k1_2 = fun(val_0[2])
-
-    k2_0 = val_0[0] + control.t_step / 2 * k1_0
-    k2_1 = val_0[1] + control.t_step / 2 * k1_1
-    k2_2 = val_0[2] + control.t_step / 2 * k1_2
-
-    k3_0 = val_0[0] + control.t_step / 2 * k2_0
-    k3_1 = val_0[1] + control.t_step / 2 * k2_1
-    k3_2 = val_0[2] + control.t_step / 2 * k2_2
-
-    k4_0 = val_0[0] + control.t_step * k3_0
-    k4_1 = val_0[1] + control.t_step * k3_1
-    k4_2 = val_0[2] + control.t_step * k3_2
-
-    val_1[0] = val_0[0] + control.t_step / 6 * (k1_0 + 2 * k2_0 + 2 * k3_0 + k4_0)
-    val_1[1] = val_0[1] + control.t_step / 6 * (k1_1 + 2 * k2_1 + 2 * k3_1 + k4_1)
-    val_1[2] = val_0[2] + control.t_step / 6 * (k1_2 + 2 * k2_2 + 2 * k3_2 + k4_2)
-
-    return val_1
-
-
 def stretching(alpha, control): # strechting of the vortex particle strengths due to three dimensionality
 
     start = timer()
@@ -828,12 +811,13 @@ def create_savefile(): # create a file to save the simulation data to (not compl
     return save_file
 
 
-def create_plot(alpha,control): # plot the current paticle positions in the domain
+def create_plot(N,alpha,control): # create figure
 
     mpl.interactive(True)
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
-    ax.scatter(alpha[:,0,0], alpha[:,1,0], alpha[:,2,0], c='r', marker='.')
+    ax.scatter(alpha[0:N-1,0,0], alpha[0:N-1,1,0], alpha[0:N-1,2,0], c='r', marker='.')
+    ax.scatter(alpha[N:,0,0], alpha[N:,1,0], alpha[N:,2,0], c='b', marker='.')
     ax.set_xlim3d(0,control.N_size)
     ax.set_ylim3d(0,control.N_size)
     ax.set_zlim3d(0,control.N_size)
@@ -843,10 +827,11 @@ def create_plot(alpha,control): # plot the current paticle positions in the doma
     return fig
     
 
-def update_plot(fig,alpha,control):
+def update_plot(N,fig,alpha,control): # plot the current paticle positions in the domain
 
     ax = fig.add_subplot(111, projection='3d')
-    ax.scatter(alpha[:,0,0], alpha[:,1,0], alpha[:,2,0], c='r', marker='.')
+    ax.scatter(alpha[0:N-1,0,0], alpha[0:N-1,1,0], alpha[0:N-1,2,0], c='r', marker='.')
+    ax.scatter(alpha[N:,0,0], alpha[N:,1,0], alpha[N:,2,0], c='b', marker='.')
     ax.set_xlim3d(0,control.N_size)
     ax.set_ylim3d(0,control.N_size)
     ax.set_zlim3d(0,control.N_size)
@@ -855,7 +840,7 @@ def update_plot(fig,alpha,control):
     plt.pause(0.01)
 
 
-def create_plot_mayavi(alpha,control): # plot the current paticle positions in the domain
+def create_plot_mayavi(alpha,control): # create figure with mayavi
 
     fig = mlab.points3d(alpha[:,0,0], alpha[:,1,0], alpha[:,2,0], scale_factor=0.1, color=(1,0,0))
     mlab.axes(extent=[0,N_size,0,N_size,0,N_size])
@@ -863,12 +848,12 @@ def create_plot_mayavi(alpha,control): # plot the current paticle positions in t
     return fig
     
 
-def update_plot_mayavi(fig,alpha,control):
+def update_plot_mayavi(fig,alpha,control): # plot the current paticle positions in the domain with mayavi
     print "w"
     
     
 
-def count_nonzero(array):
+def count_nonzero(array): # count all non-zero values in an array
 
     count=0
     for k in range(0,control.N_grid):
@@ -883,7 +868,7 @@ def count_nonzero(array):
     return count
 
 
-def print_header(control):
+def print_header(control): 
     print "+------------------------------------------------------------------+"
     print "| Particles = {0:5d} | Grid = {1:3d} | Size = {2:2.2f} | time = {3:0.2f}:{4:2.2f} |" .format(control.N_particles, control.N_grid, control.N_size, control.t_step, control.t_total)
     print "+------------------------------------------------------------------+"
@@ -903,21 +888,24 @@ def print_foot(control,t,w,s,u):
 
 # set simulation parameters
 N_size = 2 * np.pi
-N_rings = 1
+N_rings = 2
 N_grid = 64
-
 h = N_size / (N_grid - 1)
 t_total = 10
-t_step = 0.01
+t_step = 0.02
 t_time = t_step
 kin_vis = 0.001
 
 
 
-# set and save parameters for one ring in ring_val class
-ring1 = ring_val(1.5, 0.3, np.pi, np.pi, np.pi, 1000, 50, 4)
+# set and save parameters for the rings in ring_val class
+ring1 = ring_val(1.5, 0.3, np.pi, np.pi, 5*np.pi/4, -1000, 70, 4, 0)
+ring1.N_p = ring1.N_phi * (2 * ring1.N_d * (ring1.N_d + 1))
 
-N_particles = ring1.N_phi * (2 * ring1.N_d * (ring1.N_d + 1))
+ring2 = ring_val(1.5, 0.3, np.pi, np.pi, 3*np.pi/4, 1000, 70, 4, 0)
+ring2.N_p = ring2.N_phi * (2 * ring2.N_d * (ring2.N_d + 1))
+
+N_particles = ring1.N_p + ring2.N_p
 
 # save simulation parameters in ctrl class
 control = ctrl(N_size, N_grid, N_particles, h, t_step, t_total, t_time, kin_vis)
@@ -933,10 +921,13 @@ alpha = np.zeros((N_particles,3,4))
 # setup the kernel functions for the GPU
 mod = GPU_setup()
 
-# create a vortex ring and plot it
-c_ring2(ring1,alpha,control)
+N = 0
 
-fig = create_plot(alpha,control)
+# create a vortex ring and plot it
+N = c_ring2(N,ring1,alpha,control)
+N = c_ring2(N,ring2,alpha,control)
+
+fig = create_plot(ring2.N_p,alpha,control)
 #save_file=create_savefile()
 
 # counting variable for plotting the particles in intervals
@@ -961,7 +952,7 @@ while control.t_time < control.t_total:
     stream_velocity_equ(u,s,control)
     inter_G2P(alpha,u,control)
     move_part(alpha,control)
-    #stretching(alpha, control)
+    stretching(alpha, control)
 
     # stop the timer
     end = timer()
@@ -972,7 +963,7 @@ while control.t_time < control.t_total:
     print_foot(control,(end - time1),w,s,u)
     # update plot
     if count_print % 1 == 0:
-        update_plot(fig,alpha,control)
+        update_plot(ring2.N_p,fig,alpha,control)
 
     count_print = count_print + 1
     control.t_time = control.t_time + control.t_step
