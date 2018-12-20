@@ -15,7 +15,7 @@ import pycuda.autoinit
 from pycuda.compiler import SourceModule
 import os
 import sys
-#from mayavi import mlab
+from mayavi import mlab
 
 
 class ctrl:
@@ -924,14 +924,14 @@ def parse_args():
 
 #################################   MAIN - FUNCTION   #################################
 
-args = parse_args()
+#args = parse_args()
 # set simulation parameters
 N_size = 2 * np.pi
 N_rings = 2
-N_grid = args.grid
+N_grid = 64 #args.grid
 h = N_size / (N_grid - 1)
 t_total = 10
-t_step = args.timestep
+t_step = 0.01#args.timestep
 t_time = t_step
 kin_vis = 0.001
 
@@ -966,15 +966,15 @@ N = 0
 N = c_ring2(N,ring1,alpha,control)
 N = c_ring2(N,ring2,alpha,control)
 
-fig = create_plot(ring2.N_p,alpha,control)
-(step_file,part_file) = create_savefiles()
+create_plot_mayavi(ring2.N_p,alpha,control)
+"""(step_file,part_file) = create_savefiles()
 save_values(step_file,part_file,w,s,u,alpha,control)
 w = np.ones((N_grid,N_grid,N_grid,3))      # vorticity field
 s = np.ones((N_grid,N_grid,N_grid,3))      # stream function field
 u = np.ones((N_grid,N_grid,N_grid,3))
 alpha = np.ones((N_particles,3,4))
 (w,s,u,alpha) = read_values(step_file,part_file,w,s,u,alpha,control)
-time.sleep(30)
+time.sleep(30)"""
 # counting variable for plotting the particles in intervals
 count_print = 1
 
@@ -1009,7 +1009,7 @@ while control.t_time < control.t_total:
     print_foot(control,(end - time1),w,s,u)
     # update plot
     if count_print % 1 == 0:
-        update_plot(ring2.N_p,fig,alpha,control)
+        create_plot_mayavi(ring2.N_p,fig,alpha,control)
 
     count_print = count_print + 1
     control.t_time = control.t_time + control.t_step
