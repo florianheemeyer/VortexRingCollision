@@ -16,7 +16,6 @@ from pycuda.compiler import SourceModule
 import os
 import sys
 #from mayavi import mlab
-import argparse
 
 
 class ctrl:
@@ -774,9 +773,7 @@ def move_part(alpha,control):   # move the particles i.e time advancement (maybe
     end = timer()
 
     print "| 5/6) move particles                               done   {0:6.2f}  |" .format(end-start)
-
-
-
+    
 
 def stretching(alpha, control): # strechting of the vortex particle strengths due to three dimensionality
 
@@ -796,22 +793,48 @@ def stretching(alpha, control): # strechting of the vortex particle strengths du
     print "| 6/6) stretching                                   done   {0:6.2f}  |" .format(end-start)
 
 
-def save_values(save_file,w,s,u,control): # save the current values uf vorticity field, stream function field and velocity field (not complete!!!)
+def save_values(name_stepinfo,name_partinfo,w,s,u,alpha,control): # save the current values uf vorticity field, stream function field and velocity field (not complete!!!)
+    
+    data_step = [w,s,u]
+    date_part = [alpha[:,:,0],alpha[:,:,3]]
+    step_file = open(name_stepinfo,"w+")
+    part_file = open(name_partinfo,"a")
 
-    np.save(save_file,w)
-    np.save(save_file,s)
-    np.save(save_file,u)
+    np.save(step_file,data_step)
+    np.save(part_file,data_part)
 
-    return 0
+    step_file.close()
+    part_file.close()
+
+def read_values(name_stepinfo,name_partinfo,w,s,u,alpha,control): # save the current values uf vorticity field, stream function field and velocity field (not complete!!!)
+    
+    data_step = [w,s,u]
+    date_part = [alpha[:,:,0],alpha[:,:,3]]
+    step_file = open(name_stepinfo,"w+")
+    part_file = open(name_partinfo,"a+")
+
+    (w,s,u) = np.load(step_file,data_step)
+    part_loaded = np.load(part_file,data_part)
+    [alpha[:,:,0],alpha[:,:,3]] = part_loaded[-1,:]
+    step_file.close()
+    part_file.close()  
+    return (w,s,u,alpha) 
 
 
-def create_savefile(): # create a file to save the simulation data to (not complete!!!)
+def create_savefiles(): # create a file to save the simulation data to (not complete!!!)
 
     curr_dt = datetime.datetime.now()
-    name = "VIC_Sim_results_" + str(curr_dt.year) + str(curr_dt.month) + str(curr_dt.day) + ".txt"
-    save_file = open(name,"w+")
+    num = 1
+    name_stepinfo = "VIC_stepinfo_" + str(curr_dt.year) + str(curr_dt.month) + str(curr_dt.day) + "_" + str(num) + ".txt"
+    name_partinfo = "VIC_parinfo_" + str(curr_dt.year) + str(curr_dt.month) + str(curr_dt.day) + "_" + str(num) + ".txt"
+    while os.path.isfile(name_stepinfo) == True and os.path.isfile(name_partinfo) == True:
+        num = num + 1
+        name_stepinfo = "VIC_stepinfo_" + str(curr_dt.year) + str(curr_dt.month) + str(curr_dt.day) + "_" + str(num) + ".txt"
+        name_partinfo = "VIC_parinfo_" + str(curr_dt.year) + str(curr_dt.month) + str(curr_dt.day) + "_" + str(num) + ".txt"
+
     
-    return save_file
+    
+    return (name_stepinfo,name_partinfo)
 
 
 def create_plot(N,alpha,control): # create figure
@@ -843,18 +866,20 @@ def update_plot(N,fig,alpha,control): # plot the current paticle positions in th
     plt.pause(0.01)
 
 
-def create_plot_mayavi(alpha,control): # create figure with mayavi
+def create_plot_mayavi(N,alpha,control): # create figure with mayavi
 
-    fig = mlab.points3d(alpha[:,0,0], alpha[:,1,0], alpha[:,2,0], scale_factor=0.1, color=(1,0,0))
+    mlab.points3d(alpha[:N-1,0,0], alpha[:N-1,1,0], alpha[:N-1,2,0], scale_factor=0.1, color=(1,0,0))
+    mlab.points3d(alpha[N:,0,0], alpha[N:,1,0], alpha[N:,2,0], scale_factor=0.1, color=(0,1,0))
     mlab.axes(extent=[0,N_size,0,N_size,0,N_size])
+    info = "P=" + str(control.N_particles) + "\nG=" + str(control.N_grid) + "\nt=" + str(control.t_time)
+    mlab.text(0.1,0.1,info)
     mlab.show()
-    return fig
+    #return fig
     
 
 def update_plot_mayavi(fig,alpha,control): # plot the current paticle positions in the domain with mayavi
     print "w"
-    
-    
+
 
 def count_nonzero(array): # count all non-zero values in an array
 
@@ -883,7 +908,8 @@ def print_foot(control,t,w,s,u):
     #print "+------------------------------------------------------------------+"
     #print "|non-zero values:                                                  |"
     #print "|w:{0:8d}, s:{1:8d}, u:{2:8d} / {3:8d}                     |" .format(count_nonzero(w), count_nonzero(s), count_nonzero(u), N_grid ** 3 * 3)
-    #print "+------------------------------------------------------------------+\n\n"
+    print "+------------------------------------------------------------------+\n\n"
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -894,6 +920,8 @@ def parse_args():
                         help="Size of the simulation grid")
 
     return parser.parse_args()
+
+
 #################################   MAIN - FUNCTION   #################################
 
 args = parse_args()
@@ -910,10 +938,10 @@ kin_vis = 0.001
 
 
 # set and save parameters for the rings in ring_val class
-ring1 = ring_val(1.5, 0.3, np.pi, np.pi, 5*np.pi/4, -1000, 70, 4, 0)
+ring1 = ring_val(1, 0.25, 5, 5, 5.5, -1000, 70, 4, 0)
 ring1.N_p = ring1.N_phi * (2 * ring1.N_d * (ring1.N_d + 1))
 
-ring2 = ring_val(1.5, 0.3, np.pi, np.pi, 3*np.pi/4, 1000, 70, 4, 0)
+ring2 = ring_val(1, 0.25, 5, 5, 4.5, 1000, 70, 4, 0)
 ring2.N_p = ring2.N_phi * (2 * ring2.N_d * (ring2.N_d + 1))
 
 N_particles = ring1.N_p + ring2.N_p
@@ -939,8 +967,14 @@ N = c_ring2(N,ring1,alpha,control)
 N = c_ring2(N,ring2,alpha,control)
 
 fig = create_plot(ring2.N_p,alpha,control)
-#save_file=create_savefile()
-
+(step_file,part_file) = create_savefiles()
+save_values(step_file,part_file,w,s,u,alpha,control)
+w = np.ones((N_grid,N_grid,N_grid,3))      # vorticity field
+s = np.ones((N_grid,N_grid,N_grid,3))      # stream function field
+u = np.ones((N_grid,N_grid,N_grid,3))
+alpha = np.ones((N_particles,3,4))
+(w,s,u,alpha) = read_values(step_file,part_file,w,s,u,alpha,control)
+time.sleep(30)
 # counting variable for plotting the particles in intervals
 count_print = 1
 
@@ -964,12 +998,13 @@ while control.t_time < control.t_total:
     inter_G2P(alpha,u,control)
     move_part(alpha,control)
     stretching(alpha, control)
+    
 
     # stop the timer
     end = timer()
 
     # save the values (not completely done yet !!!)
-    # save_values(save_file,w,s,u,control)
+    #save_values(step_file,part_file,w,s,u,alpha,control)
 
     print_foot(control,(end - time1),w,s,u)
     # update plot
