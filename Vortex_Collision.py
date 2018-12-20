@@ -16,6 +16,7 @@ from pycuda.compiler import SourceModule
 import os
 import sys
 #from mayavi import mlab
+import argparse
 
 
 class ctrl:
@@ -773,7 +774,9 @@ def move_part(alpha,control):   # move the particles i.e time advancement (maybe
     end = timer()
 
     print "| 5/6) move particles                               done   {0:6.2f}  |" .format(end-start)
-    
+
+
+
 
 def stretching(alpha, control): # strechting of the vortex particle strengths due to three dimensionality
 
@@ -882,17 +885,25 @@ def print_foot(control,t,w,s,u):
     #print "|w:{0:8d}, s:{1:8d}, u:{2:8d} / {3:8d}                     |" .format(count_nonzero(w), count_nonzero(s), count_nonzero(u), N_grid ** 3 * 3)
     #print "+------------------------------------------------------------------+\n\n"
 
+def parse_args():
+    parser = argparse.ArgumentParser()
 
+    parser.add_argument("--timestep", type=float, default=0.02, metavar="TIMESTEP",
+                        help="Length of one simulation time step")
+    parser.add_argument("--grid", type=int, default=64, metavar="GRIDSIZE",
+                        help="Size of the simulation grid")
+
+    return parser.parse_args()
 #################################   MAIN - FUNCTION   #################################
 
-
+args = parse_args()
 # set simulation parameters
 N_size = 2 * np.pi
 N_rings = 2
-N_grid = 64
+N_grid = args.grid
 h = N_size / (N_grid - 1)
 t_total = 10
-t_step = 0.02
+t_step = args.timestep
 t_time = t_step
 kin_vis = 0.001
 
