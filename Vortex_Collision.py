@@ -15,16 +15,19 @@ import pycuda.autoinit
 from pycuda.compiler import SourceModule
 import os
 import sys
+import h5py
 from mayavi import mlab
 
 
 class ctrl:
 
     # control variable containing the key parameters of the simulation. To be passed with most functions
-    def __init__(self, N_size, N_grid, N_particles, h, t_step, t_total, t_time, kin_vis):
+    def __init__(self, N_size, N_grid, N_rings, N_particles, N_step, h, t_step, t_total, t_time, kin_vis):
         self.N_size = N_size                # size of the domain box
         self.N_grid = N_grid                # number of grid point in each direction
+        self.N_rings = N_rings              # number of rings
         self.N_particles = N_particles      # total number of particles
+        self.N_step = N_step                # number of time steps
         self.h = h                          # spatial step size
         self.t_step = t_step                # time step size
         self.t_total = t_total              # total simulation time
@@ -35,16 +38,19 @@ class ctrl:
 class ring_val:
 
     # control variable containing the parameters of one vortex ring.
-    def __init__(self, R, r, x_pos, y_pos, z_pos, Re, N_phi, N_d, N_p):
+    def __init__(self, R, r, x_pos, y_pos, z_pos, x_ang, y_ang, Re, N_phi, N_d, N_p, color):
         self.R = R              # main ring radius
         self.r = r              # ring tube radius
         self.x_pos = x_pos      # x position of the center of the ring
         self.y_pos = y_pos      # y position of the center of the ring
         self.z_pos = z_pos      # z position of the center of the ring
+        self.x_ang = x_ang      # x angle
+        self.y_ang = y_ang      # y angle
         self.Re = Re            # Reynolds number of the vortex ring
         self.N_phi = N_phi      # number of main ring slices
         self.N_d = N_d          # number radial slices (each slice adds four points)
         self.N_p = N_p          # number of particles
+        self.color = color          # number of particles
 
 
 #################################   FUNCTION-DECLARATION   #################################
@@ -245,88 +251,49 @@ def phi(x):
     return phi_x
 
 
-def c_ring(R, r, w_0, Re, alpha, control):
-
-    # create counting variables and poistion of the ring
-    count_ring = 0
-    N = 0
-    x_pos = np.pi
-    y_pos = np.pi
-    z_pos = np.pi
-    Re = 1000
-
-    # loop through all the grid nodes
-    for k in range(0,control.N_grid):
-        for j in range(0,control.N_grid):
-            for i in range(0,control.N_grid):
-
-                # assign position to the particles
-                alpha[N,0,0] = i * control.h
-                alpha[N,1,0] = j * control.h
-                alpha[N,2,0] = k * control.h
-
-                # condition for particle to gain initial vorticity
-                if (((i * control.h - x_pos) ** 2 + (j * control.h - y_pos) ** 2) ** 0.5 - R) ** 2 + (k * control.h - z_pos) ** 2 < r ** 2:
-
-                    # calculate some values needed for vorticity
-                    gam = Re * control.kin_vis
-                    rad = ((i * control.h) ** 2 + (j * control.h) ** 2) ** 0.5
-                    rho = ((rad - R) ** 2 + (k * control.h) ** 2) ** 0.5
-                    th = np.arctan2((j * control.h), (i * control.h))
-                    
-                    # calculate magnitude of vorticity
-                    w_mag = gam / (np.pi * R ** 2) * np.exp(-(rho / r) ** 2)
-
-                    # vectorize vorticity
-                    alpha[N,0,1] = np.sin(th) * w_mag
-                    alpha[N,1,1] = -np.cos(th) * w_mag
-                    count_ring = count_ring + 1
-                N = N + 1
-
-    
-    # print out counting variable and plot the ring
-    print count_ring, N
-    """fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-    ax.scatter(alpha[:,0,0], alpha[:,1,0], alpha[:,2,0], c='r', marker='.')
-    ax.set_xlim3d(0,control.N_size)
-    ax.set_ylim3d(0,control.N_size)
-    ax.set_zlim3d(0,control.N_size)
-    plt.show()"""       #### probably not needed ###
-
-
-def c_ring2(N, ring, alpha, control):  # create the particles for one vortex ring given the parameters passed with "ring"
+def c_ring(ring, alpha, control):  # create the particles for one vortex ring given the parameters passed with "ring"
 
     # counting variable
-    
+    N = 0
 
-    # arrays for the particle creation
-    phi = np.linspace(0,2 * np.pi,ring.N_phi + 1)
-    d = np.linspace(float(ring.r) / float(ring.N_d),ring.r,ring.N_d)
+    for rc in range(0,control.N_rings):
+        
+        rot_Mx = [[1,0,0],[0,np.cos(ring[rc].x_ang),-np.sin(ring[rc].x_ang)],[0,np.sin(ring[rc].x_ang),np.cos(ring[rc].x_ang)]]
+        rot_My = [[np.cos(ring[rc].y_ang),0,np.sin(ring[rc].y_ang)],[0,1,0],[-np.sin(ring[rc].y_ang),0,np.cos(ring[rc].y_ang)]]
+        rot_M = np.matmul(rot_Mx,rot_My)
+
+        # arrays for the particle creation
+        phi = np.linspace(0,2 * np.pi,ring[rc].N_phi + 1)
+        d = np.linspace(float(ring[rc].r) / float(ring[rc].N_d),ring[rc].r,ring[rc].N_d)
    
-    # loop through all positions in the ring
-    for j in range(0,ring.N_phi):
-        for k in range(0,ring.N_d):
+        # loop through all positions in the ring
+        for j in range(0,ring[rc].N_phi):
+            for k in range(0,ring[rc].N_d):
 
-            # array for the tube particles (increases with the radial part)
-            th = np.linspace(0,2 * np.pi,(k+1)*4 + 1)
+                # array for the tube particles (increases with the radial part)
+                th = np.linspace(0,2 * np.pi,(k+1)*4 + 1)
 
-            for i in range(0,(k+1)*4):
+                for i in range(0,(k+1)*4):
                 
-                # assign positions to the particles
-                alpha[N,0,0] = ring.x_pos + (ring.R + d[k] * np.cos(th[i])) * np.cos(phi[j])
-                alpha[N,1,0] = ring.y_pos + (ring.R + d[k] * np.cos(th[i])) * np.sin(phi[j])
-                alpha[N,2,0] = ring.z_pos + d[k] * np.sin(th[i])
+                    # assign positions to the particles
+                    pos = [(ring[rc].R + d[k] * np.cos(th[i])) * np.cos(phi[j]),(ring[rc].R + d[k] * np.cos(th[i])) * np.sin(phi[j]),d[k] * np.sin(th[i])]
+                    pos = np.matmul(pos,rot_M)
+                    alpha[N,0,0] = ring[rc].x_pos + pos[0]
+                    alpha[N,1,0] = ring[rc].y_pos + pos[1]
+                    alpha[N,2,0] = ring[rc].z_pos + pos[2]
 
-                # calculate the mangitude of vorticity
-                gam = ring.Re * control.kin_vis
-                w_mag = gam / (np.pi * ring.R ** 2) * np.exp(-(d[k] / ring.r) ** 2)
+                    # calculate the mangitude of vorticity
+                    gam = ring[rc].Re * control.kin_vis
+                    w_mag = gam / (np.pi * ring[rc].R ** 2) * np.exp(-(d[k] / ring[rc].r) ** 2)
 
-                # vectorize vorticity
-                alpha[N,0,3] = -np.sin(phi[j]) * w_mag
-                alpha[N,1,3] = np.cos(phi[j]) * w_mag
-                alpha[N,2,3] = 0
-                N = N + 1                
+                    # vectorize vorticity
+                    mag = [-np.sin(phi[j]) * w_mag,np.cos(phi[j]) * w_mag,0]
+                    mag = np.matmul(mag,rot_M)
+                    alpha[N,0,3] = mag[0]
+                    alpha[N,1,3] = mag[1]
+                    alpha[N,2,3] = mag[2]
+
+                    N = N + 1                
     
     # print out counting variable
     print "%d particles created" %N
@@ -793,93 +760,171 @@ def stretching(alpha, control): # strechting of the vortex particle strengths du
     print "| 6/6) stretching                                   done   {0:6.2f}  |" .format(end-start)
 
 
-def save_values(name_stepinfo,name_partinfo,w,s,u,alpha,control): # save the current values uf vorticity field, stream function field and velocity field (not complete!!!)
+def save_values(filename,w,s,u,alpha,control): # save the current values uf vorticity field, stream function field and velocity field (not complete!!!)
     
-    data_step = [w,s,u]
-    date_part = [alpha[:,:,0],alpha[:,:,3]]
-    step_file = open(name_stepinfo,"w+")
-    part_file = open(name_partinfo,"a")
-
-    np.save(step_file,data_step)
-    np.save(part_file,data_part)
-
-    step_file.close()
-    part_file.close()
-
-def read_values(name_stepinfo,name_partinfo,w,s,u,alpha,control): # save the current values uf vorticity field, stream function field and velocity field (not complete!!!)
+    f_pointer = h5py.File(filename, "a")
     
-    data_step = [w,s,u]
-    date_part = [alpha[:,:,0],alpha[:,:,3]]
-    step_file = open(name_stepinfo,"w+")
-    part_file = open(name_partinfo,"a+")
+    d_w = f_pointer["/simres/w"]
+    d_w[...] = w
+    d_s = f_pointer["/simres/s"]
+    d_s[...] = s
+    d_u = f_pointer["/simres/u"]
+    d_u[...] = u
+    d_alpha = f_pointer["/simres/alpha"]
+    d_alpha[...] = alpha
+    d_control = f_pointer["/simres/control"]
+    d_control[...] = (control.N_size, control.N_grid, control.N_rings, control.N_particles, control.N_step, control.h, control.t_step, control.t_total, control.t_time, control.kin_vis)
 
-    (w,s,u) = np.load(step_file,data_step)
-    part_loaded = np.load(part_file,data_part)
-    [alpha[:,:,0],alpha[:,:,3]] = part_loaded[-1,:]
-    step_file.close()
-    part_file.close()  
-    return (w,s,u,alpha) 
+    d_particles = f_pointer["/parres/particles"]
+    d_particles[:,:,:,control.N_step] = [alpha[:,:,0],alpha[:,:,3]]
+
+    f_pointer.close()
+    
+
+def read_values(filename,w,s,u,alpha,control): # save the current values uf vorticity field, stream function field and velocity field (not complete!!!)
+    
+    f_pointer = h5py.File(filename, "a")
+    
+    w = f_pointer["simres/w"][:]
+    s = f_pointer["simres/s"][:]
+    u = f_pointer["simres/u"][:]
+    alpha = f_pointer["simres/alpha"][:]
+    control.N_size = f_pointer["simres/control"][0,0]
+    control.N_grid = f_pointer["simres/control"][0,1]
+    control.N_rings = f_pointer["simres/control"][0,2]
+    control.N_particles = f_pointer["simres/control"][0,3]
+    control.N_step = f_pointer["simres/control"][0,4]
+    control.h = f_pointer["simres/control"][0,5]
+    control.t_step = f_pointer["simres/control"][0,6]
+    control.t_total = f_pointer["simres/control"][0,7]
+    control.t_time= f_pointer["simres/control"][0,8]
+    control.kin_vis = f_pointer["simres/control"][0,9]
+
+    f_pointer.close()
+    print "done"
+    
+    return (w,s,u,alpha,control) 
 
 
-def create_savefiles(): # create a file to save the simulation data to (not complete!!!)
+def create_savefile(control): # create a file to save the simulation data to (not complete!!!)
 
     curr_dt = datetime.datetime.now()
     num = 1
-    name_stepinfo = "VIC_stepinfo_" + str(curr_dt.year) + str(curr_dt.month) + str(curr_dt.day) + "_" + str(num) + ".txt"
-    name_partinfo = "VIC_parinfo_" + str(curr_dt.year) + str(curr_dt.month) + str(curr_dt.day) + "_" + str(num) + ".txt"
-    while os.path.isfile(name_stepinfo) == True and os.path.isfile(name_partinfo) == True:
+    filename = "VIC_sim_" + str(curr_dt.year) + str(curr_dt.month) + str(curr_dt.day) + "_" + str(num) + ".hdf5"
+    while os.path.isfile(filename) == True:
         num = num + 1
-        name_stepinfo = "VIC_stepinfo_" + str(curr_dt.year) + str(curr_dt.month) + str(curr_dt.day) + "_" + str(num) + ".txt"
-        name_partinfo = "VIC_parinfo_" + str(curr_dt.year) + str(curr_dt.month) + str(curr_dt.day) + "_" + str(num) + ".txt"
+        filename = "VIC_sim_" + str(curr_dt.year) + str(curr_dt.month) + str(curr_dt.day) + "_" + str(num) + ".hdf5"
 
+    f_pointer = h5py.File(filename, "a")
+
+    g_simres = f_pointer.create_group("simres")
+    g_parres = f_pointer.create_group("parres")
     
+    d_w = g_simres.create_dataset("w",(control.N_grid,control.N_grid,control.N_grid,3))
+    d_s = g_simres.create_dataset("s",(control.N_grid,control.N_grid,control.N_grid,3))
+    d_u = g_simres.create_dataset("u",(control.N_grid,control.N_grid,control.N_grid,3))
+    d_alpha = g_simres.create_dataset("alpha",(control.N_particles,3,4))
+    d_control = g_simres.create_dataset("control",(1,10))
     
-    return (name_stepinfo,name_partinfo)
+    d_particles = g_parres.create_dataset("particles", (2,control.N_particles,3,(control.t_total/t_step) + 1))
+    
+    f_pointer.close()
+    
+    return filename
 
 
-def create_plot(N,alpha,control): # create figure
+def create_plot(alpha,ring,control): # create figure
 
     mpl.interactive(True)
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
-    ax.scatter(alpha[0:N-1,0,0], alpha[0:N-1,1,0], alpha[0:N-1,2,0], c='r', marker='.')
-    ax.scatter(alpha[N:,0,0], alpha[N:,1,0], alpha[N:,2,0], c='b', marker='.')
+    
+    N = 0
+
+    for i in range(0,control.N_rings):
+        ax.scatter(alpha[N:N + ring[i].N_particles - 1,0,0], alpha[N:N + ring[i].N_particles - 1,1,0], alpha[N:N + ring[i].N_particles - 1,2,0], c = ring[i].color, marker='.')
+        N = N + ring[i].N_particles
+
     ax.set_xlim3d(0,control.N_size)
     ax.set_ylim3d(0,control.N_size)
     ax.set_zlim3d(0,control.N_size)
-    #ax.view_init(0, 0)
+    ax.view_init(0, 0)
     plt.draw()
     plt.pause(1)
     return fig
     
 
-def update_plot(N,fig,alpha,control): # plot the current paticle positions in the domain
+def update_plot(fig,alpha,ring,control): # plot the current paticle positions in the domain
 
     ax = fig.add_subplot(111, projection='3d')
-    ax.scatter(alpha[0:N-1,0,0], alpha[0:N-1,1,0], alpha[0:N-1,2,0], c='r', marker='.')
-    ax.scatter(alpha[N:,0,0], alpha[N:,1,0], alpha[N:,2,0], c='b', marker='.')
+
+    N = 0
+
+    for i in range(0,control.N_rings):
+        ax.scatter(alpha[N:N + ring[i].N_particles - 1,0,0], alpha[N:N + ring[i].N_particles - 1,1,0], alpha[N:N + ring[i].N_particles - 1,2,0], c = ring[i].color, marker='.')
+        N = N + ring[i].N_particles
+    
     ax.set_xlim3d(0,control.N_size)
     ax.set_ylim3d(0,control.N_size)
     ax.set_zlim3d(0,control.N_size)
-    #ax.view_init(0, 0)
+    ax.view_init(0, 0)
     plt.draw()
     plt.pause(0.01)
 
 
-def create_plot_mayavi(N,alpha,control): # create figure with mayavi
+def create_plot_mayavi(alpha,ring,control): # create figure with mayavi
 
-    mlab.points3d(alpha[:N-1,0,0], alpha[:N-1,1,0], alpha[:N-1,2,0], scale_factor=0.1, color=(1,0,0))
-    mlab.points3d(alpha[N:,0,0], alpha[N:,1,0], alpha[N:,2,0], scale_factor=0.1, color=(0,1,0))
-    mlab.axes(extent=[0,N_size,0,N_size,0,N_size])
+    N = 0
+
+    for i in range(0,control.N_rings):
+        mlab.points3d(alpha[N:N + ring[i].N_particles - 1,0,0], alpha[N:N + ring[i].N_particles - 1,1,0], alpha[N:N + ring[i].N_particles - 1,2,0], scale_factor=0.1, color = ring[i].color)
+        N = N + ring[i].N_particles
+    
+    mlab.axes(extent=[0,control.N_size,0,control.N_size,0,control.N_size])
     info = "P=" + str(control.N_particles) + "\nG=" + str(control.N_grid) + "\nt=" + str(control.t_time)
     mlab.text(0.1,0.1,info)
     mlab.show()
     #return fig
     
 
-def update_plot_mayavi(fig,alpha,control): # plot the current paticle positions in the domain with mayavi
+def update_plot_mayavi(fig,alpha,control): # plot the current paticle positions in the domain with mayavi (not complete)
     print "w"
 
+
+def create_animation(filename): # create an animation from a saved file using mayavi (not complete)
+
+    f_pointer = h5py.File(filename, "a")
+    
+    res_alpha = f_pointer["parres/particles"][:]
+    N_size = f_pointer["simres/control"][0,0]
+    N_grid = f_pointer["simres/control"][0,1]
+    N_rings = f_pointer["simres/control"][0,2]
+    N_particles = f_pointer["simres/control"][0,3]
+    N_step = f_pointer["simres/control"][0,4]
+    h = f_pointer["simres/control"][0,5]
+    t_step = f_pointer["simres/control"][0,6]
+    t_total = f_pointer["simres/control"][0,7]
+    t_time= f_pointer["simres/control"][0,8]
+    kin_vis = f_pointer["simres/control"][0,9]
+    f_pointer.close()
+
+    
+    #mlab.axes(extent=[0,N_size,0,N_size,0,N_size])
+    #info = "P=" + str(N_particles) + "\nG=" + str(N_grid) + "\nt=" + str(0)
+    #mlab.text(0.1,0.1,info)
+    
+    @mlab.animate
+    def anim(res_alpha):
+        fig = mlab.points3d(res_alpha[0,:,0,0], res_alpha[0,:,1,0], res_alpha[0,:,2,0], scale_factor=0.1, color=(1,0,0))
+        for i in range(0,3):
+
+            fig.mlab_source.set(x=res_alpha[0,:,0,i], y=res_alpha[0,:,1,i], z=res_alpha[0,:,2,i])
+
+            yield
+
+    a = anim(res_alpha)
+    mlab.show()
+    
 
 def count_nonzero(array): # count all non-zero values in an array
 
@@ -924,30 +969,33 @@ def parse_args():
 
 #################################   MAIN - FUNCTION   #################################
 
-#args = parse_args()
 # set simulation parameters
-N_size = 2 * np.pi
-N_rings = 2
-N_grid = 64 #args.grid
+N_size = 10.
+N_rings = 0
+N_particles = 0
+N_grid = 32
+N_step = 0
 h = N_size / (N_grid - 1)
-t_total = 10
-t_step = 0.01#args.timestep
-t_time = t_step
+t_total = 10.
+t_step = 0.01
+t_time = 0.
 kin_vis = 0.001
 
-
-
+#create_animation("VIC_sim_20181225_1.hdf5")
+#time.sleep(50)
 # set and save parameters for the rings in ring_val class
-ring1 = ring_val(1, 0.25, 5, 5, 5.5, -1000, 70, 4, 0)
-ring1.N_p = ring1.N_phi * (2 * ring1.N_d * (ring1.N_d + 1))
+ring = []
+ring.append(ring_val(1.5, 0.25, 5, 5, 6, 0, 0, -1000, 70, 4, 0, (0,0,1)))
+ring.append(ring_val(1.5, 0.25, 5, 5, 4, 0, 0, 1000, 70, 4, 0, (0,1,0)))
+# add rings here
 
-ring2 = ring_val(1, 0.25, 5, 5, 4.5, 1000, 70, 4, 0)
-ring2.N_p = ring2.N_phi * (2 * ring2.N_d * (ring2.N_d + 1))
-
-N_particles = ring1.N_p + ring2.N_p
+N_rings = len(ring)
+for i in range(0,N_rings):
+    ring[i].N_particles = ring[i].N_phi * (2 * ring[i].N_d * (ring[i].N_d + 1))
+    N_particles = N_particles + ring[i].N_particles
 
 # save simulation parameters in ctrl class
-control = ctrl(N_size, N_grid, N_particles, h, t_step, t_total, t_time, kin_vis)
+control = ctrl(N_size, N_grid, N_rings, N_particles, N_step, h, t_step, t_total, t_time, kin_vis)
 
 # initialize the grid fields (each value is a 3-vector)
 w = np.zeros((N_grid,N_grid,N_grid,3))      # vorticity field
@@ -960,24 +1008,20 @@ alpha = np.zeros((N_particles,3,4))
 # setup the kernel functions for the GPU
 mod = GPU_setup()
 
-N = 0
+# create the vortex rings and plot it
+c_ring(ring,alpha,control)
 
-# create a vortex ring and plot it
-N = c_ring2(N,ring1,alpha,control)
-N = c_ring2(N,ring2,alpha,control)
+create_plot_mayavi(alpha,ring,control)
+#fig = create_plot(alpha,ring,control)
+filename = create_savefile(control)
+save_values(filename,w,s,u,alpha,control)
 
-create_plot_mayavi(ring2.N_p,alpha,control)
-"""(step_file,part_file) = create_savefiles()
-save_values(step_file,part_file,w,s,u,alpha,control)
-w = np.ones((N_grid,N_grid,N_grid,3))      # vorticity field
-s = np.ones((N_grid,N_grid,N_grid,3))      # stream function field
-u = np.ones((N_grid,N_grid,N_grid,3))
-alpha = np.ones((N_particles,3,4))
-(w,s,u,alpha) = read_values(step_file,part_file,w,s,u,alpha,control)
-time.sleep(30)"""
+#(w,s,u,alpha,control) = read_values(filename,w,s,u,alpha,control)
+
 # counting variable for plotting the particles in intervals
 count_print = 1
-
+control.t_time = control.t_step
+N_step = 1
 #################################   simulation loop   #################################
 
 print "\nSimulation start \n"
@@ -994,22 +1038,23 @@ while control.t_time < control.t_total:
     # VIC-algorithm
     w = inter_P2G_GPU(alpha,w,control,mod)
     s = vort_stream_equ_GPU(s,w,control,mod)
-    stream_velocity_equ(u,s,control)
+    u = stream_velocity_equ_GPU(u,s,control,mod)
     inter_G2P(alpha,u,control)
     move_part(alpha,control)
-    stretching(alpha, control)
-    
+    stretching(alpha,control)
 
     # stop the timer
     end = timer()
 
     # save the values (not completely done yet !!!)
-    #save_values(step_file,part_file,w,s,u,alpha,control)
+    save_values(filename,w,s,u,alpha,control)
 
     print_foot(control,(end - time1),w,s,u)
     # update plot
     if count_print % 1 == 0:
-        create_plot_mayavi(ring2.N_p,fig,alpha,control)
+        create_plot_mayavi(alpha,ring,control)
+        #update_plot(fig,alpha,ring,control)
 
     count_print = count_print + 1
     control.t_time = control.t_time + control.t_step
+    control.N_step = control.N_step + 1
